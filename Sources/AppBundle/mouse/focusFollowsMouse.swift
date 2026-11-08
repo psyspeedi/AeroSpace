@@ -24,6 +24,8 @@ import AppKit
         focusFollowsTask = Task.startUnstructured { @MainActor in
             guard let token: RunSessionGuard = .isServerEnabled else { return }
             try checkCancellation()
+            if let focusedWindowId = await axFocusedOnScreenWindowId(), !isLaidOut(focusedWindowId) { return }
+            try checkCancellation()
             guard let windowId = await axWindowIdUnderMouse(location) else { return }
             try checkCancellation()
             let workspace = location.monitorApproximation.activeWorkspace
@@ -51,6 +53,35 @@ func managedWindowUnderMouse(windowId: UInt32, location: CGPoint, workspace: Wor
         if rect.contains(location) { return child }
     }
     return window
+}
+
+/// Whether the window is a part of some workspace layout (tiling or floating).
+/// Popups and windows that AeroSpace doesn't track at all are not.
+@MainActor
+private func isLaidOut(_ windowId: UInt32) -> Bool {
+    Window.get(byId: windowId)?.nodeWorkspace != nil
+}
+
+/// The window that currently receives keyboard input, if it's on screen above the desktop.
+///
+/// Focus-follows-mouse must not take keyboard focus away from windows that aren't laid out by AeroSpace:
+/// launchers (Raycast, Spotlight), Control Center and menu bar popovers, quick terminals. They close as soon as
+/// they lose focus, while the mouse is often moved away from them on purpose (like layer-shell launchers on
+/// Linux, which keep exclusive keyboard focus regardless of the pointer).
+/// The desktop (negative window layer) doesn't count, so that a click on the wallpaper between windows doesn't
+/// turn focus-follows-mouse off.
+@concurrent
+private nonisolated func axFocusedOnScreenWindowId() async -> UInt32? {
+    let systemwide = AXUIElementCreateSystemWide()
+    guard let element = systemwide.get(Ax.focusedUiElementAttr) else { return nil }
+    let window = element.get(Ax.parentWindowRecursive)
+        ?? (element.get(Ax.roleAttr) == kAXWindowRole ? element : nil)
+    guard let windowId = window?.containingWindowId() ?? element.containingWindowId() else { return nil }
+    guard let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, windowId) as? [[String: Any]])?.first,
+          info[kCGWindowIsOnscreen as String] as? Bool == true,
+          let layer = info[kCGWindowLayer as String] as? Int, layer >= 0
+    else { return nil }
+    return windowId
 }
 
 @concurrent

@@ -190,6 +190,11 @@ enum Ax {
         key: kAXWindowAttribute,
         getter: { ($0 as! AXUIElement) },
     )
+    /// Meant to be read from the system-wide element: the UI element that currently receives keyboard input
+    static let focusedUiElementAttr = ReadableAttrImpl<AXUIElement>(
+        key: kAXFocusedUIElementAttribute,
+        getter: { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil },
+    )
     static let titleAttr = WritableAttrImpl<String>(
         key: kAXTitleAttribute,
         getter: { $0 as? String },
